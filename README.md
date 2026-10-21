@@ -8,6 +8,16 @@ Reusable Django app that records who changed what, when and from where: field-le
 ![Django](https://img.shields.io/badge/django-4.2%20%7C%205.0-0C4B33)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+## Try it live
+
+| | |
+|---|---|
+| Run in your browser | [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/AkibUllah/django-audit-log?quickstart=1) — brings up the example project on Postgres with `docker compose` (migrated and seeded with audited changes); open the forwarded port 8000 and sign in to `/admin/audit_log/auditentry/` with `admin` / `admin12345`. The DRF endpoint is at `/api/audit/` |
+| One-click deploy | [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/AkibUllah/django-audit-log) — same example project with a free Postgres, seeded at start-up |
+| Local | `docker compose up --build -d` or `make install example-migrate example-seed example-run` (see Quick Start) |
+
+No hosted page: this is a library, and its demo is the example project's admin, which needs a running Django process.
+
 ## Why this exists
 
 Every fintech or e-commerce back office I have built eventually gets the same question from compliance: "who changed this customer's phone number, and from which IP?" Bolting `history` tables onto each model one at a time produces inconsistent schemas and leaks NID numbers and phone numbers into logs. This package centralises the answer in one table with one shape, computes the diff at the field level so the entry says exactly what changed, masks fields you declare sensitive, and attaches the request context automatically so the trail is useful to an auditor, not just a developer.
@@ -102,8 +112,8 @@ make example-run                   # http://127.0.0.1:8000/admin/audit_log/audit
 Or with Docker (Postgres):
 
 ```bash
-docker compose up --build -d
-docker compose exec web python manage.py seed_shop
+docker compose up --build -d       # migrates and seeds the demo shop on first start (DJANGO_SEED_DEMO=true)
+open http://localhost:8000/admin/  # admin / admin12345
 ```
 
 ## Usage

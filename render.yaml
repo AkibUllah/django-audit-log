@@ -1,0 +1,53 @@
+# Render blueprint: the example project (Django admin + DRF audit endpoint) on Postgres.
+# The container migrates and seeds the demo shop at start-up; log in with admin / admin12345.
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: django-audit-log-example
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health/
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: .onrender.com
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        value: https://*.onrender.com
+      - key: DJANGO_SEED_DEMO
+        value: "true"
+      - key: DJANGO_DB
+        value: postgres
+      - key: POSTGRES_HOST
+        fromDatabase:
+          name: django-audit-log-db
+          property: host
+      - key: POSTGRES_PORT
+        fromDatabase:
+          name: django-audit-log-db
+          property: port
+      - key: POSTGRES_DB
+        fromDatabase:
+          name: django-audit-log-db
+          property: database
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: django-audit-log-db
+          property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase:
+          name: django-audit-log-db
+          property: password
+
+databases:
+  - name: django-audit-log-db
+    plan: free
+    databaseName: audit_example
+    user: audit
