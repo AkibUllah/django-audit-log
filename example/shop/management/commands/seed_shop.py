@@ -16,11 +16,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         User = get_user_model()
-        admin, _ = User.objects.get_or_create(
+        admin, created = User.objects.get_or_create(
             username="admin",
             defaults={"is_staff": True, "is_superuser": True, "email": "admin@example.com"},
         )
-        if not admin.has_usable_password():
+        # A freshly created user has an empty password string, which Django 4.2 still reports
+        # as "usable", so check for that explicitly; an existing real password is left alone.
+        if created or not admin.password or not admin.has_usable_password():
             admin.set_password("admin12345")
             admin.save()
 

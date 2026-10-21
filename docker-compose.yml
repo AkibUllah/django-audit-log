@@ -21,7 +21,10 @@ services:
     environment:
       DJANGO_SECRET_KEY: compose-example-secret-key-not-for-production-0123456789
       DJANGO_DEBUG: "true"
-      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      # Override from the shell when running behind a forwarding proxy (e.g. Codespaces).
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-}
+      DJANGO_SEED_DEMO: ${DJANGO_SEED_DEMO:-true}
       DJANGO_DB: postgres
       POSTGRES_DB: audit_example
       POSTGRES_USER: audit
