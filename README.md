@@ -1,3 +1,4 @@
+<!-- topics: django,python,audit-log,audit-trail,django-app,compliance,middleware,pypi -->
 # django-audit-log
 
 Reusable Django app that records who changed what, when and from where: field-level diffs for create, update, delete and many-to-many changes, masking for sensitive fields, request context (user, IP, user agent, request id) captured by middleware, a read-only admin, an optional DRF endpoint and a retention command.
