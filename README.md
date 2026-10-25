@@ -4,6 +4,8 @@
 Reusable Django app that records who changed what, when and from where: field-level diffs for create, update, delete and many-to-many changes, masking for sensitive fields, request context (user, IP, user agent, request id) captured by middleware, a read-only admin, an optional DRF endpoint and a retention command.
 
 [![CI](https://github.com/AkibUllah/django-audit-log/actions/workflows/ci.yml/badge.svg)](https://github.com/AkibUllah/django-audit-log/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/AkibUllah/django-audit-log/actions/workflows/codeql.yml/badge.svg)](https://github.com/AkibUllah/django-audit-log/actions/workflows/codeql.yml)
+[![Release](https://img.shields.io/github/v/release/AkibUllah/django-audit-log)](https://github.com/AkibUllah/django-audit-log/releases)
 ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11-blue)
 ![Django](https://img.shields.io/badge/django-4.2%20%7C%205.0-0C4B33)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -17,6 +19,20 @@ Reusable Django app that records who changed what, when and from where: field-le
 | Local | `docker compose up --build -d` or `make install example-migrate example-seed example-run` (see Quick Start) |
 
 No hosted page: this is a library, and its demo is the example project's admin, which needs a running Django process.
+
+## Screenshots
+
+![Audit entries in the admin](docs/images/admin-list.png)
+
+*The read-only admin of the example project after `seed_shop`: creates, updates, many-to-many adds and a bulk update, filterable by action and content type.*
+
+![A masked update entry](docs/images/admin-entry.png)
+
+*An update to a customer's phone number: the change is recorded, the values are masked because `phone` is registered as sensitive.*
+
+![Command line](docs/images/cli.png)
+
+*Seeding the example project, an `audit_prune` dry run and the test suite.*
 
 ## Why this exists
 
@@ -224,11 +240,11 @@ Covered: create/update/delete diffs, unchanged saves, `exclude` and `fields` sel
 
 ## Roadmap
 
-- Async-safe `pre_save` snapshot caching for very hot models (avoid the extra `SELECT`)
-- Optional `object_repr` templating per model and JSON path filters on `changes` for Postgres
-- Per-entry retention classes (e.g. keep `delete` entries longer than `update`)
-- Pluggable sinks (write-through to Kafka / S3 / SIEM alongside the database)
-- Attribution of reverse-side m2m changes as an opt-in
+- [ ] Async-safe `pre_save` snapshot caching for very hot models (avoid the extra `SELECT`) (#1)
+- [ ] Optional `object_repr` templating per model and JSON path filters on `changes` for Postgres (#2)
+- [ ] Per-entry retention classes (e.g. keep `delete` entries longer than `update`) (#3)
+- [ ] Pluggable sinks (write-through to Kafka / S3 / SIEM alongside the database) (#4)
+- [ ] Attribution of reverse-side m2m changes as an opt-in (#5)
 
 ## License
 
