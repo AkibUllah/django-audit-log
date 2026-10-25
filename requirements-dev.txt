@@ -1,5 +1,5 @@
 -r requirements.txt
-djangorestframework>=3.14
+djangorestframework>=3.18.3
 pytest>=7.4
 pytest-django>=4.7
 pytest-cov>=4.1
