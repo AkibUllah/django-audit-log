@@ -4,7 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] - 2026-10-21
+## [Unreleased]
+
+### Added
+
+- CodeQL analysis for Python and GitHub Actions on pushes and pull requests to `main` and on a weekly schedule.
+- Dependabot version updates for pip, Docker and GitHub Actions, with minor and patch updates grouped per ecosystem.
+- README screenshots: the audit admin (list and a masked update entry) and a command-line session.
+- Roadmap items tracked as GitHub issues under the v0.2.0 milestone.
+
+### Changed
+
+- CI workflow runs with a read-only `GITHUB_TOKEN`.
+
+## [0.1.0] - 2026-10-25
 
 ### Added
 
@@ -22,3 +35,6 @@ All notable changes to this project are documented here. The format follows
 - `bulk_update_audited()` and `bulk_delete_audited()` helpers for queryset operations
   that bypass model signals.
 - Example project under `example/` and a pytest-django suite.
+
+[Unreleased]: https://github.com/AkibUllah/django-audit-log/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/AkibUllah/django-audit-log/releases/tag/v0.1.0
