@@ -28,9 +28,9 @@ classifiers = [
 dependencies = ["Django>=4.2"]
 
 [project.optional-dependencies]
-drf = ["djangorestframework>=3.14"]
+drf = ["djangorestframework>=3.18.3"]
 dev = [
-    "djangorestframework>=3.14",
+    "djangorestframework>=3.18.3",
     "whitenoise>=6.6",
     "pytest>=7.4",
     "pytest-django>=4.14.0",
