@@ -8,6 +8,7 @@
         "TRUST_X_FORWARDED_FOR": True,
         "STORE_UNCHANGED_UPDATES": False,
         "MAX_REPR_LENGTH": 200,
+        "RETENTION": None,  # see audit_log.retention
     }
 """
 
@@ -23,6 +24,7 @@ DEFAULTS: dict[str, Any] = {
     "TRUST_X_FORWARDED_FOR": True,
     "STORE_UNCHANGED_UPDATES": False,
     "MAX_REPR_LENGTH": 200,
+    "RETENTION": None,
 }
 
 
