@@ -50,7 +50,8 @@ Every fintech or e-commerce back office I have built eventually gets the same qu
 - Read-only admin with action, model and date filters, search and a rendered before/after table
 - Optional DRF `AuditEntryViewSet` (admin-only, filter by `model`, `object_pk`, `action`, `actor`, `request_id`)
 - `audit_prune --days N | --before DATE [--model app.model] [--dry-run]` with batched deletes
-- Queryset helpers `for_object`, `for_model`, `by_actor`, `older_than`; typed (`py.typed`), no dependencies beyond Django
+- Retention classes per action and per model (`AUDIT_LOG["RETENTION"]`, `None` = keep forever), validated at startup and applied by `audit_prune --policy` with a per-class summary
+- Queryset helpers `for_object`, `for_model`, `by_actor`, `older_than`, `expired`, `delete_in_batches`; typed (`py.typed`), no dependencies beyond Django
 
 ## Architecture
 
@@ -86,7 +87,7 @@ Key decisions:
 | Framework | Django 4.2 and 5.0 |
 | Optional | djangorestframework 3.14+ for the read-only API |
 | Packaging | hatchling (PEP 621), version 0.1.0 |
-| Tooling | pytest + pytest-django (SQLite), ruff, GitHub Actions matrix (Python 3.10/3.11 x Django 4.2/5.0) |
+| Tooling | pytest + pytest-django (SQLite and PostgreSQL), ruff, GitHub Actions matrix (Python 3.10/3.11 x Django 4.2/5.0) plus a PostgreSQL 16 job |
 
 ## Quick Start
 
@@ -200,9 +201,50 @@ DRF (admin-only): `GET /api/audit/?model=shop.order&object_pk=42`, `?action=dele
 
 ### Retention
 
+One-off thresholds:
+
 ```bash
 python manage.py audit_prune --days 365 --dry-run
 python manage.py audit_prune --before 2025-01-01 --model shop.product
+```
+
+Retention classes keep each kind of entry as long as compliance requires. Days per action, `None` to keep forever, optional per-model overrides:
+
+```python
+AUDIT_LOG = {
+    "RETENTION": {
+        "default": 365,  # every action without its own rule
+        "update": 180,
+        "delete": 3650,
+        "bulk_delete": None,  # keep forever
+        "models": {
+            "shop.cart": {"default": 30},
+            "shop.customer": {"update": 730},
+        },
+    }
+}
+```
+
+The most specific rule wins: model + action, then the model's `default`, then the action, then the global `default`. Without a global `default`, entries no rule names are kept forever. The setting is validated when Django starts (`ImproperlyConfigured` naming the bad key); a model label that is not installed is a system check warning (`audit_log.W001`).
+
+```bash
+python manage.py audit_prune --policy --dry-run
+#   class                    keep       would delete
+#   shop.cart                30 days             412
+#   shop.customer:update     730 days              3
+#   update                   180 days           1288
+#   delete                   3650 days             0
+#   bulk_delete              forever               -
+#   default                  365 days            977
+# Would delete 2680 audit entries under the retention policy.
+python manage.py audit_prune --policy --model shop.cart --batch-size 1000
+```
+
+Each class is deleted in batches of `--batch-size` rows. `--days` and `--before` still work and ignore the policy. The same rules are available in code:
+
+```python
+AuditEntry.objects.expired()  # past their retention class now
+AuditEntry.objects.for_model(Cart).expired().delete_in_batches(1000)
 ```
 
 ## Project Structure
@@ -221,6 +263,8 @@ django-audit-log/
 │   ├── drf.py             # optional serializer + viewset
 │   ├── bulk.py            # bulk_update_audited / bulk_delete_audited
 │   ├── conf.py            # AUDIT_LOG settings with defaults
+│   ├── retention.py       # retention classes: parse, validate, resolve, expired filter
+│   ├── checks.py          # system checks for the retention setting
 │   ├── management/commands/audit_prune.py
 │   └── migrations/
 ├── example/               # runnable project: shop app, seed_shop command, admin, DRF route
@@ -232,17 +276,17 @@ django-audit-log/
 ## Testing
 
 ```bash
-make test        # pytest -q  (36 tests, in-memory SQLite)
+make test        # pytest -q  (74 tests, in-memory SQLite)
+DJANGO_DB=postgres POSTGRES_PORT=5432 pytest -q   # same suite on PostgreSQL (needs psycopg)
 make lint
 ```
 
-Covered: create/update/delete diffs, unchanged saves, `exclude` and `fields` selection, FK serialisation, masking on create and update, registry guards (double registration, unknown fields, unregister, decorator with options), raw fixture loads ignored, m2m add/remove/clear/set and reverse-side behaviour, context managers (nesting, `set_actor`, `disable_auditing`), middleware (user, X-Forwarded-For, request id echo, cleanup, trust toggle), bulk helpers with batch ids, `audit_prune` modes and argument errors, admin permissions and rendering, DRF permissions and filters, queryset helpers.
+Covered: create/update/delete diffs, unchanged saves, `exclude` and `fields` selection, FK serialisation, masking on create and update, registry guards (double registration, unknown fields, unregister, decorator with options), raw fixture loads ignored, m2m add/remove/clear/set and reverse-side behaviour, context managers (nesting, `set_actor`, `disable_auditing`), middleware (user, X-Forwarded-For, request id echo, cleanup, trust toggle), bulk helpers with batch ids, `audit_prune` modes and argument errors, retention classes (validation, rule precedence, per-class boundaries with frozen time, keep forever, `--policy` dry run, batches and `--model`), admin permissions and rendering, DRF permissions and filters, queryset helpers.
 
 ## Roadmap
 
 - [ ] Async-safe `pre_save` snapshot caching for very hot models (avoid the extra `SELECT`) (#1)
 - [ ] Optional `object_repr` templating per model and JSON path filters on `changes` for Postgres (#2)
-- [ ] Per-entry retention classes (e.g. keep `delete` entries longer than `update`) (#3)
 - [ ] Pluggable sinks (write-through to Kafka / S3 / SIEM alongside the database) (#4)
 - [ ] Attribution of reverse-side m2m changes as an opt-in (#5)
 
