@@ -4,6 +4,7 @@ from io import StringIO
 
 import pytest
 from django.contrib.admin.sites import site
+from django.contrib.contenttypes.models import ContentType
 from django.core.management import CommandError, call_command
 from django.test import RequestFactory
 from django.utils import timezone
@@ -144,3 +145,17 @@ def test_queryset_helpers(author, user):
     assert AuditEntry.objects.by_actor(user).count() == 1
     assert AuditEntry.objects.for_model(Author).count() == 2
     assert AuditEntry.objects.older_than(timezone.now() + timedelta(seconds=1)).count() == 2
+
+
+def test_delete_in_batches_only_touches_the_filtered_rows(book):
+    kept = set(AuditEntry.objects.values_list("pk", flat=True))  # author + book creates
+    book_type = ContentType.objects.get_for_model(Book)
+    for i in range(5):
+        AuditEntry.objects.create(
+            action="update", content_type=book_type, object_pk=f"other-{i}", changes={}
+        )
+
+    deleted = AuditEntry.objects.filter(action="update").delete_in_batches(batch_size=2)
+    assert deleted == 5
+    assert set(AuditEntry.objects.values_list("pk", flat=True)) == kept
+    assert AuditEntry.objects.filter(action="update").delete_in_batches(batch_size=0) == 0

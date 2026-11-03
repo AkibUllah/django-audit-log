@@ -22,6 +22,23 @@ class AuditEntryQuerySet(models.QuerySet):
     def older_than(self, moment) -> AuditEntryQuerySet:
         return self.filter(timestamp__lt=moment)
 
+    def delete_in_batches(self, batch_size: int = 5000) -> int:
+        """Delete the matching rows ``batch_size`` primary keys at a time.
+
+        Keeps each ``DELETE`` (and the locks it takes) bounded on large tables; returns
+        the number of entries deleted.
+        """
+        batch_size = max(1, batch_size)
+        deleted = 0
+        while True:
+            pks = list(self.order_by("pk").values_list("pk", flat=True)[:batch_size])
+            if not pks:
+                return deleted
+            count, _ = self.model._default_manager.filter(pk__in=pks).delete()
+            if not count:
+                return deleted
+            deleted += count
+
 
 class AuditEntry(models.Model):
     class Action(models.TextChoices):
