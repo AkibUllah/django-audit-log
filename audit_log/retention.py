@@ -22,11 +22,15 @@ by a rule is kept forever, so an incomplete policy never deletes more than it na
 
 from __future__ import annotations
 
+import operator
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from functools import reduce
 from typing import Any
 
 from django.core.exceptions import ImproperlyConfigured
+from django.db.models import Q
 
 from .conf import get_setting
 from .models import AuditEntry
@@ -52,6 +56,33 @@ class ModelRetention:
 
 
 @dataclass(frozen=True)
+class RetentionClass:
+    """One rule of the policy and the entries it governs.
+
+    ``name`` is ``"default"``, an action (``"delete"``), a model label (``"shop.cart"``,
+    that model's default) or both (``"shop.customer:update"``). ``filter`` selects the
+    entries the rule applies to regardless of their age.
+    """
+
+    name: str
+    days: int | None
+    filter: Q
+    model: str | None = None
+
+    def cutoff(self, now: datetime) -> datetime | None:
+        """Entries strictly older than this are expired; ``None`` when kept forever."""
+        return None if self.days is None else now - timedelta(days=self.days)
+
+
+def _any(parts: list[Q]) -> Q | None:
+    return reduce(operator.or_, parts) if parts else None
+
+
+def _excluding(condition: Q | None) -> Q:
+    return ~condition if condition is not None else Q()
+
+
+@dataclass(frozen=True)
 class RetentionPolicy:
     default: int | None = None
     actions: dict[str, int | None] = field(default_factory=dict)
@@ -66,6 +97,50 @@ class RetentionPolicy:
             if override.has_default:
                 return override.default
         return self.actions.get(action, self.default)
+
+    def classes(self) -> list[RetentionClass]:
+        """The policy as disjoint classes; every entry belongs to exactly one of them."""
+        classes: list[RetentionClass] = []
+        claimed: list[Q] = []  # entries already governed by a per-model rule
+        for label, override in sorted(self.models.items()):
+            app_label, model_name = label.split(".")
+            of_model = Q(content_type__app_label=app_label, content_type__model=model_name)
+            for action in ACTIONS:
+                if action in override.actions:
+                    classes.append(
+                        RetentionClass(
+                            f"{label}:{action}",
+                            override.actions[action],
+                            of_model & Q(action=action),
+                            label,
+                        )
+                    )
+            if override.has_default:
+                rest = of_model & _excluding(_any([Q(action=a) for a in override.actions]))
+                classes.append(RetentionClass(label, override.default, rest, label))
+                claimed.append(of_model)
+            else:
+                claimed.append(of_model & Q(action__in=list(override.actions)))
+
+        unclaimed = _excluding(_any(claimed))
+        for action in ACTIONS:
+            if action in self.actions:
+                classes.append(
+                    RetentionClass(action, self.actions[action], unclaimed & Q(action=action))
+                )
+        other_actions = _excluding(_any([Q(action=a) for a in self.actions]))
+        classes.append(RetentionClass(DEFAULT, self.default, unclaimed & other_actions))
+        return classes
+
+    def expired_filter(self, now: datetime) -> Q | None:
+        """A filter for entries past their retention at ``now``; ``None`` if none can expire."""
+        return _any(
+            [
+                cls.filter & Q(timestamp__lt=cutoff)
+                for cls in self.classes()
+                if (cutoff := cls.cutoff(now)) is not None
+            ]
+        )
 
 
 def _days(value: Any, where: str) -> int | None:

@@ -22,6 +22,18 @@ class AuditEntryQuerySet(models.QuerySet):
     def older_than(self, moment) -> AuditEntryQuerySet:
         return self.filter(timestamp__lt=moment)
 
+    def expired(self, policy=None, now=None) -> AuditEntryQuerySet:
+        """Entries past their retention class (``AUDIT_LOG["RETENTION"]`` by default).
+
+        Returns an empty queryset when no policy is configured or every class is kept
+        forever.
+        """
+        from .retention import get_policy
+
+        policy = policy if policy is not None else get_policy()
+        condition = policy.expired_filter(now or timezone.now()) if policy is not None else None
+        return self.filter(condition) if condition is not None else self.none()
+
     def delete_in_batches(self, batch_size: int = 5000) -> int:
         """Delete the matching rows ``batch_size`` primary keys at a time.
 
