@@ -60,14 +60,7 @@ class Command(BaseCommand):
             )
             return
 
-        deleted = 0
-        batch_size = max(1, options["batch_size"])
-        while True:
-            pks = list(queryset.order_by("pk").values_list("pk", flat=True)[:batch_size])
-            if not pks:
-                break
-            count, _ = AuditEntry.objects.filter(pk__in=pks).delete()
-            deleted += count
+        deleted = queryset.delete_in_batches(options["batch_size"])
         noun = "entry" if deleted == 1 else "entries"
         self.stdout.write(
             self.style.SUCCESS(f"Deleted {deleted} audit {noun} older than {cutoff.isoformat()}.")
