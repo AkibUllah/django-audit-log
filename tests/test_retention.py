@@ -1,11 +1,18 @@
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
+from unittest import mock
+
 import pytest
 from django.apps import apps
+from django.contrib.contenttypes.models import ContentType
 from django.core.checks import run_checks
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
 from audit_log.checks import check_retention_models
+from audit_log.models import AuditEntry
 from audit_log.retention import get_policy, parse_policy
+from tests.testapp.models import Author, Book, Customer
 
 POLICY = {
     "default": 365,
@@ -112,3 +119,88 @@ def test_unknown_model_label_is_a_system_check_warning():
 
 def test_checks_are_silent_without_a_policy():
     assert check_retention_models() == []
+
+
+# --- classes and the expired() helper (frozen time) --------------------------------
+NOW = datetime(2026, 6, 1, 12, 0, tzinfo=dt_timezone.utc)
+
+
+@pytest.fixture
+def frozen_now():
+    with mock.patch("django.utils.timezone.now", return_value=NOW):
+        yield NOW
+
+
+def make_entry(model, action, age_days, seconds=0):
+    return AuditEntry.objects.create(
+        action=action,
+        content_type=ContentType.objects.get_for_model(model),
+        object_pk="1",
+        timestamp=NOW - timedelta(days=age_days, seconds=seconds),
+    )
+
+
+def test_classes_partition_entries_and_agree_with_days_for(db):
+    policy = parse_policy(POLICY)
+    for model in (Author, Book, Customer):
+        for action in AuditEntry.Action.values:
+            make_entry(model, action, age_days=1)
+
+    classes = policy.classes()
+    assert [c.name for c in classes] == [
+        "testapp.book",
+        "testapp.customer:update",
+        "testapp.customer:m2m_add",
+        "update",
+        "delete",
+        "bulk_delete",
+        "default",
+    ]
+    for entry in AuditEntry.objects.all():
+        matching = [c for c in classes if AuditEntry.objects.filter(c.filter, pk=entry.pk).exists()]
+        assert len(matching) == 1, (entry.model_label, entry.action, matching)
+        assert matching[0].days == policy.days_for(entry.model_label, entry.action)
+
+
+@pytest.mark.parametrize(
+    ("model", "action", "days"),
+    [
+        (Author, "create", 365),  # global default
+        (Author, "update", 180),  # action class
+        (Author, "delete", 3650),  # action class
+        (Book, "delete", 30),  # model default beats the action class
+        (Customer, "update", 730),  # model + action
+        (Customer, "delete", 3650),  # falls through to the action class
+    ],
+)
+def test_expired_respects_each_class_boundary(db, frozen_now, model, action, days):
+    on_the_edge = make_entry(model, action, age_days=days)
+    past_it = make_entry(model, action, age_days=days, seconds=1)
+
+    expired = AuditEntry.objects.expired(policy=parse_policy(POLICY))
+    assert list(expired.values_list("pk", flat=True)) == [past_it.pk]
+    assert on_the_edge.pk not in expired.values_list("pk", flat=True)
+
+
+def test_keep_forever_classes_never_expire(db, frozen_now):
+    make_entry(Author, "bulk_delete", age_days=100_000)
+    make_entry(Customer, "m2m_add", age_days=100_000)
+    assert not AuditEntry.objects.expired(policy=parse_policy(POLICY)).exists()
+
+
+def test_expired_uses_the_configured_policy_and_explicit_now(db, frozen_now):
+    entry = make_entry(Author, "update", age_days=10)
+    with override_settings(AUDIT_LOG={"RETENTION": {"update": 7}}):
+        assert list(AuditEntry.objects.expired()) == [entry]
+        assert not AuditEntry.objects.expired(now=NOW - timedelta(days=5)).exists()
+    # composes with the other helpers
+    assert (
+        AuditEntry.objects.for_model(Book).expired(policy=parse_policy({"default": 0})).count() == 0
+    )
+
+
+def test_expired_is_empty_without_a_policy_or_with_only_forever_rules(db, frozen_now):
+    make_entry(Author, "update", age_days=10_000)
+    assert not AuditEntry.objects.expired().exists()
+    assert not AuditEntry.objects.expired(policy=parse_policy({"default": None})).exists()
+    assert parse_policy({"default": None}).expired_filter(NOW) is None
