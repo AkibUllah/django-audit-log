@@ -1,4 +1,6 @@
-"""Settings for the test project (SQLite in memory)."""
+"""Settings for the test project (SQLite in memory, or PostgreSQL with DJANGO_DB=postgres)."""
+
+import os
 
 SECRET_KEY = "tests-only-secret-key-not-for-production-0123456789"
 DEBUG = True
@@ -40,6 +42,17 @@ TEMPLATES = [
 ]
 
 DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}
+if os.environ.get("DJANGO_DB", "sqlite") == "postgres":
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("POSTGRES_DB", "audit_log"),
+            "USER": os.environ.get("POSTGRES_USER", "audit"),
+            "PASSWORD": os.environ.get("POSTGRES_PASSWORD", "audit"),
+            "HOST": os.environ.get("POSTGRES_HOST", "localhost"),
+            "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+        }
+    }
 
 USE_TZ = True
 TIME_ZONE = "UTC"
