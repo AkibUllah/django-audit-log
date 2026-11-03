@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
+from io import StringIO
 from unittest import mock
 
 import pytest
@@ -7,6 +8,7 @@ from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
 from django.core.checks import run_checks
 from django.core.exceptions import ImproperlyConfigured
+from django.core.management import CommandError, call_command
 from django.test import override_settings
 
 from audit_log.checks import check_retention_models
@@ -204,3 +206,96 @@ def test_expired_is_empty_without_a_policy_or_with_only_forever_rules(db, frozen
     assert not AuditEntry.objects.expired().exists()
     assert not AuditEntry.objects.expired(policy=parse_policy({"default": None})).exists()
     assert parse_policy({"default": None}).expired_filter(NOW) is None
+
+
+# --- audit_prune --policy ---------------------------------------------------------------
+def _prune(**options):
+    out = StringIO()
+    call_command("audit_prune", policy=True, stdout=out, **options)
+    return out.getvalue()
+
+
+def _class_rows(output):
+    rows = {}
+    for line in output.splitlines()[1:]:
+        if line.startswith("  "):
+            name, *rest = line.split()
+            rows[name] = rest[-1]
+    return rows
+
+
+@pytest.fixture
+def aged_entries(db, frozen_now):
+    return {
+        "author_create_old": make_entry(Author, "create", 400),
+        "author_create_new": make_entry(Author, "create", 300),
+        "author_update_old": make_entry(Author, "update", 200),
+        "author_delete_kept": make_entry(Author, "delete", 3000),
+        "author_bulk_delete": make_entry(Author, "bulk_delete", 9000),
+        "book_delete_old": make_entry(Book, "delete", 31),
+        "book_create_new": make_entry(Book, "create", 29),
+        "customer_update_old": make_entry(Customer, "update", 731),
+        "customer_update_new": make_entry(Customer, "update", 700),
+    }
+
+
+EXPIRED = {"author_create_old", "author_update_old", "book_delete_old", "customer_update_old"}
+
+
+@override_settings(AUDIT_LOG={"RETENTION": POLICY})
+def test_policy_dry_run_lists_counts_per_class(aged_entries):
+    output = _prune(dry_run=True)
+    assert _class_rows(output) == {
+        "testapp.book": "1",
+        "testapp.customer:update": "1",
+        "testapp.customer:m2m_add": "-",
+        "update": "1",
+        "delete": "0",
+        "bulk_delete": "-",
+        "default": "1",
+    }
+    assert "forever" in output and "365 days" in output
+    assert "Would delete 4 audit entries under the retention policy." in output
+    assert AuditEntry.objects.count() == len(aged_entries)
+
+
+@override_settings(AUDIT_LOG={"RETENTION": POLICY})
+def test_policy_prune_deletes_only_expired_entries_in_batches(aged_entries):
+    output = _prune(batch_size=1)
+    assert "Deleted 4 audit entries under the retention policy." in output
+    assert _class_rows(output)["default"] == "1"
+    remaining = set(AuditEntry.objects.values_list("pk", flat=True))
+    assert remaining == {e.pk for k, e in aged_entries.items() if k not in EXPIRED}
+
+    assert "Deleted 0 audit entries" in _prune()  # idempotent
+
+
+@override_settings(AUDIT_LOG={"RETENTION": POLICY})
+def test_policy_prune_with_model_filter_skips_other_models_rules(aged_entries):
+    output = _prune(model="TestApp.Book")
+    rows = _class_rows(output)
+    assert "testapp.customer:update" not in rows
+    assert rows["testapp.book"] == "1"
+    assert "Deleted 1 audit entry under the retention policy." in output
+    assert not AuditEntry.objects.filter(pk=aged_entries["book_delete_old"].pk).exists()
+    assert AuditEntry.objects.filter(pk=aged_entries["author_create_old"].pk).exists()
+
+
+def test_policy_prune_errors(db):
+    with pytest.raises(CommandError, match="needs AUDIT_LOG\\['RETENTION'\\]"):
+        _prune()
+    with override_settings(AUDIT_LOG={"RETENTION": {"default": -3}}):
+        with pytest.raises(CommandError, match="must be >= 0"):
+            _prune()
+    with pytest.raises(CommandError, match="not allowed with"):
+        call_command("audit_prune", "--policy", "--days", "30", stdout=StringIO())
+    with override_settings(AUDIT_LOG={"RETENTION": POLICY}):
+        with pytest.raises(CommandError, match="app_label.model"):
+            _prune(model="book")
+
+
+@override_settings(AUDIT_LOG={"RETENTION": POLICY})
+def test_explicit_flags_still_work_with_a_policy_configured(aged_entries):
+    out = StringIO()
+    call_command("audit_prune", days=8000, stdout=out)
+    assert "Deleted 1 audit entry" in out.getvalue()  # the bulk_delete kept forever by policy
