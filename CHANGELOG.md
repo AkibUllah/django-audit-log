@@ -8,6 +8,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Retention classes per action and per model under `AUDIT_LOG["RETENTION"]` (days, `None` to
+  keep forever), validated at startup with `ImproperlyConfigured`; system check
+  `audit_log.W001` warns about rules for models that are not installed (#3).
+- `audit_prune --policy` applies the retention classes in batches; `--dry-run` lists the
+  count per class (#3).
+- `AuditEntryQuerySet.expired()` and `AuditEntryQuerySet.delete_in_batches()` helpers.
+- CI job running the test suite on PostgreSQL 16; the test settings use PostgreSQL when
+  `DJANGO_DB=postgres`.
+
 - CodeQL analysis for Python and GitHub Actions on pushes and pull requests to `main` and on a weekly schedule.
 - Dependabot version updates for pip, Docker and GitHub Actions, with minor and patch updates grouped per ecosystem.
 - README screenshots: the audit admin (list and a masked update entry) and a command-line session.
