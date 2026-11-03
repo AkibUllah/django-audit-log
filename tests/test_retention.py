@@ -1,7 +1,10 @@
 import pytest
+from django.apps import apps
+from django.core.checks import run_checks
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
+from audit_log.checks import check_retention_models
 from audit_log.retention import get_policy, parse_policy
 
 POLICY = {
@@ -84,3 +87,28 @@ def test_invalid_policies_raise_a_clear_error(raw, message):
         parse_policy(raw)
     assert message in str(excinfo.value)
     assert "AUDIT_LOG['RETENTION']" in str(excinfo.value)
+
+
+# --- startup validation ----------------------------------------------------------
+@override_settings(AUDIT_LOG={"RETENTION": {"delete": "forever"}})
+def test_invalid_policy_fails_app_startup():
+    with pytest.raises(ImproperlyConfigured, match=r"\['delete'\] must be a whole number"):
+        apps.get_app_config("audit_log").ready()
+
+
+@override_settings(AUDIT_LOG={"RETENTION": POLICY})
+def test_valid_policy_passes_startup_and_checks():
+    apps.get_app_config("audit_log").ready()
+    assert check_retention_models() == []
+
+
+@override_settings(AUDIT_LOG={"RETENTION": {"models": {"testapp.boook": {"default": 1}}}})
+def test_unknown_model_label_is_a_system_check_warning():
+    messages = run_checks()
+    warnings = [m for m in messages if m.id == "audit_log.W001"]
+    assert len(warnings) == 1
+    assert "'testapp.boook'" in warnings[0].msg
+
+
+def test_checks_are_silent_without_a_policy():
+    assert check_retention_models() == []
